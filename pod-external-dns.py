@@ -20,7 +20,8 @@ settings = {
 
 def main_loop():
     pods_with_annotation = find_pods_with_annotation()
-    if not pods_with_annotation:
+    if pods_with_annotation is False:
+        log_message("Skipping iteration because of kubernetes.client exception")
         return
     desired_record_state = create_desired_record_state(pods_with_annotation)
     log_message("Pods with the 'external-dns-kafka.alpha.tak.io/enabled' annotation set to true and matching domain:")
@@ -227,9 +228,10 @@ def find_pods_with_annotation(namespace='default', annotation_key='external-dns-
                 node_name = pod.spec.node_name
 
                 # Get nodeIP
+                node_info = v1_node.read_node(node_name)
                 try:
                     node_info = v1_node.read_node(node_name)
-                except:
+                except Exception as e:
                     log_message("Exception when calling v1_node.read_node: ", e)
                     return False
                 node_ip = node_info.status.addresses[0].address if node_info.status.addresses else None
