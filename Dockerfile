@@ -16,4 +16,5 @@ RUN pyinstaller --onefile pod-external-dns.py
 FROM alpine
 COPY --from=build /app/dist/pod-external-dns /pod-external-dns
 
+ENTRYPOINT [ "/pod-external-dns"]
 CMD [ "/pod-external-dns"]
