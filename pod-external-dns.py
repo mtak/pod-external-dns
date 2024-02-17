@@ -141,7 +141,8 @@ def main():
             settings['cf_api_email'] = arg
 
     # Check for mandatory options
-    if not all(settings.values()):
+    mandatory_options = ['managed_domain', 'cf_api_token', 'reconciliation_interval', 'cf_zone_id']
+    if not all(settings[opt] for opt in mandatory_options):
         print("Error: All mandatory options must be provided.")
         usage()
         sys.exit(2)
