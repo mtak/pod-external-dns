@@ -26,5 +26,5 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           push: true
-          tags: merijntjetak/pod-external-dns:${{ github.sha }} merijntjetak/pod-external-dns:latest
+          tags: merijntjetak/pod-external-dns:${{ github.sha }}
 
