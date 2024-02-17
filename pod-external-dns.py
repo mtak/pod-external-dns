@@ -277,7 +277,7 @@ def usage():
 def log_message(message):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_line = f"[{timestamp}] {message}"
-    print(log_line)
+    print(log_line, flush=True)
 
 
 if __name__ == "__main__":
