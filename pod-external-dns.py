@@ -2,6 +2,8 @@ import sys
 import getopt
 import requests
 import time
+import os
+import datetime
 
 from kubernetes import client, config
 import re
@@ -19,7 +21,8 @@ settings = {
 def main_loop():
     pods_with_annotation = find_pods_with_annotation()
     desired_record_state = create_desired_record_state(pods_with_annotation)
-    print("Pods with the 'external-dns-kafka.alpha.tak.io/enabled' annotation set to true and matching domain:")
+    log_message("Pods with the 'external-dns-kafka.alpha.tak.io/enabled' annotation set to true and matching domain:")
+    log_message(desired_record_state)
 
     dns_state = get_managed_dns_records()
 
@@ -27,7 +30,7 @@ def main_loop():
     records_added = add_records(desired_record_state=desired_record_state, dns_state=dns_state)
     # State is going to be out of date for the update after an add or delete, skip until next cycle
     if records_removed or records_added:
-        print("Skipping updating records due to records being added or deleted")
+        log_message("Skipping updating records due to records being added or deleted")
         return
     update_records(desired_record_state=desired_record_state, dns_state=dns_state)
 
@@ -35,10 +38,10 @@ def main_loop():
 def remove_records(desired_record_state, dns_state):
     r = False
     for dns_record in dns_state:
-        print(dns_record)
+        log_message(dns_record)
         # Check if record exists in desired state
         if dns_record not in desired_record_state:
-            print(f"{dns_record} not in desired record state, deleting... (id: {dns_state[dns_record]['id']})")
+            log_message(f"{dns_record} not in desired record state, deleting... (id: {dns_state[dns_record]['id']})")
             remove_record(record_id=dns_state[dns_record]['id'])
             r = True
     return r
@@ -57,9 +60,9 @@ def update_records(desired_record_state, dns_state):
     r = False
     for desired_record in desired_record_state:
         if desired_record_state[desired_record] != dns_state[desired_record]['content']:
-            print(f"Updating record {desired_record}")
-            print(f"current ip: {dns_state[desired_record]['content']}")
-            print(f"wanted ip: {desired_record_state[desired_record]}")
+            log_message(f"Updating record {desired_record}")
+            log_message(f"current ip: {dns_state[desired_record]['content']}")
+            log_message(f"wanted ip: {desired_record_state[desired_record]}")
             remove_record(dns_state[desired_record]['id'])
             add_record(name=desired_record, ip=desired_record_state[desired_record])
             r = True
@@ -85,10 +88,10 @@ def add_record(name, ip):
     response = requests.post(url, headers=headers, json=data)
 
     if response.status_code == 200:
-        print(f"DNS record {name} added successfully.")
+        log_message(f"DNS record {name} added successfully.")
         return True
     else:
-        print(f"Failed to add DNS record {name}. Status code: {response.status_code}")
+        log_message(f"Failed to add DNS record {name}. Status code: {response.status_code}")
         return False
 
 
@@ -104,10 +107,10 @@ def remove_record(record_id):
     response = requests.delete(url, headers=headers)
 
     if response.status_code == 200:
-        print("DNS record deleted successfully.")
+        log_message("DNS record deleted successfully.")
         return True
     else:
-        print(f"Failed to delete DNS record. Status code: {response.status_code}")
+        log_message(f"Failed to delete DNS record. Status code: {response.status_code}")
         return False
 
 
@@ -119,7 +122,7 @@ def main():
                                    ["help", "managed-domain=", "kubeconfig=", "cf-api-token=",
                                     "reconciliation-interval=", "cf-zone-id=", "cf-api-email="])
     except getopt.GetoptError as err:
-        print(str(err))
+        log_message(str(err))
         usage()
         sys.exit(2)
 
@@ -141,15 +144,26 @@ def main():
             settings['cf_api_email'] = arg
 
     # Check for mandatory options
-    mandatory_options = ['managed_domain', 'cf_api_token', 'reconciliation_interval', 'cf_zone_id']
+    mandatory_options = ['managed_domain', 'reconciliation_interval', 'cf_zone_id']
     if not all(settings[opt] for opt in mandatory_options):
-        print("Error: All mandatory options must be provided.")
+        log_message("Error: All mandatory options must be provided.")
         usage()
         sys.exit(2)
 
-    print("Configuration:")
+    if 'cf_api_token' not in settings or not settings['cf_api_token']:
+        cf_api_token_env = os.getenv('CF_API_TOKEN')
+        if cf_api_token_env:
+            settings['cf_api_token'] = cf_api_token_env
+        else:
+            log_message("Error: CF_API_TOKEN must be provided either as an option or via environment variable.")
+            usage()
+            sys.exit(2)
+
+    log_message("Configuration:")
     for key, value in settings.items():
-        print(f"{key}: {value}")
+        if key != 'cf_api_token':
+            log_message(f"{key}: {value}")
+    log_message(f"cf_api_token: {'Set' if settings['cf_api_token'] else 'Not set'}")
 
     while True:
         main_loop()
@@ -172,7 +186,7 @@ def get_all_dns_records():
         records = data.get('result', [])
         return records
     else:
-        print(f"Failed to retrieve DNS records. Status code: {response.status_code}")
+        log_message(f"Failed to retrieve DNS records. Status code: {response.status_code}")
         return None
 
 
@@ -182,11 +196,10 @@ def get_managed_dns_records():
     filtered_records = {}
 
     if dns_records:
-        print("Filtered Cloudflare DNS Records:")
+        log_message("Filtered Cloudflare DNS Records:")
         for record in dns_records:
             if record['name'].endswith(settings['managed_domain']):
                 filtered_records[record['name']] = record
-                print(record)
 
     return filtered_records
 
@@ -231,7 +244,7 @@ def find_pods_with_annotation(namespace='default', annotation_key='external-dns-
                         'suffix': suffix
                     }
     except Exception as e:
-        print("Exception when calling CoreV1Api->list_namespaced_pod:", e)
+        log_message("Exception when calling CoreV1Api->list_namespaced_pod:", e)
 
     return pods_with_annotation
 
@@ -246,19 +259,25 @@ def create_desired_record_state(pods):
 
 
 def usage():
-    print("Usage: python script.py -m MANAGED_DOMAIN -k KUBECONFIG -t CF_API_TOKEN -r RECONCILIATION_INTERVAL -z CF_ZONE_ID")
+    print("Usage: python script.py -m MANAGED_DOMAIN [-k KUBECONFIG] [-t CF_API_TOKEN] -r RECONCILIATION_INTERVAL -z CF_ZONE_ID")
     print("Options:")
     print("  -h, --help                        Show this help message and exit")
     print("  -m MANAGED_DOMAIN, --managed-domain=MANAGED_DOMAIN")
     print("                                    Specify managed domain")
     print("  -k KUBECONFIG, --kubeconfig=KUBECONFIG")
-    print("                                    Specify kubeconfig file path")
-    print("  -t CF_API_TOKEN, --cf-api-token=CF_API_TOKEN")
-    print("                                    Specify Cloud Foundry API token")
-    print("  -r RECONCILIATION_INTERVAL, --reconciliation-interval=RECONCILIATION_INTERVAL")
-    print("                                    Specify reconciliation interval")
+    print("                                    Specify kubeconfig file path or load via incluster config")
     print("  -z CF_ZONE_ID, --cf-zone-id=CF_ZONE_ID")
     print("                                    Specify Cloudflare zone ID")
+    print("  -t CF_API_TOKEN, --cf-api-token=CF_API_TOKEN")
+    print("                                    Specify Cloudflare API token. Required, either as a parameter or via the CF_API_TOKEN environment variable.")
+    print("  -r RECONCILIATION_INTERVAL, --reconciliation-interval=RECONCILIATION_INTERVAL")
+    print("                                    Specify reconciliation interval")
+
+
+def log_message(message):
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    log_line = f"[{timestamp}] {message}"
+    print(log_line)
 
 
 if __name__ == "__main__":
