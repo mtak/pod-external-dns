@@ -10,6 +10,7 @@ import re
 
 settings = {
     'managed_domain': None,
+    'namespace': None,
     'kubeconfig': None,
     'cf_api_token': None,
     'cf_api_email': None,
@@ -121,8 +122,8 @@ def main():
     global settings
 
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "hm:k:t:r:z:e:",
-                                   ["help", "managed-domain=", "kubeconfig=", "cf-api-token=",
+        opts, args = getopt.getopt(sys.argv[1:], "hm:n:k:t:r:z:e:",
+                                   ["help", "managed-domain=", "namespace=", "kubeconfig=", "cf-api-token=",
                                     "reconciliation-interval=", "cf-zone-id=", "cf-api-email="])
     except getopt.GetoptError as err:
         log_message(str(err))
@@ -135,6 +136,8 @@ def main():
             sys.exit()
         elif opt in ("-m", "--managed-domain"):
             settings['managed_domain'] = arg
+        elif opt in ("-n", "--namespace"):
+            settings['namespace'] = arg
         elif opt in ("-k", "--kubeconfig"):
             settings['kubeconfig'] = arg
         elif opt in ("-t", "--cf-api-token"):
@@ -162,12 +165,22 @@ def main():
             usage()
             sys.exit(2)
 
+    if 'namespace' not in settings or not settings['namespace']:
+        namespace_env = os.getenv('NAMESPACE')
+        if namespace_env:
+            settings['namespace'] = namespace_env
+        else:
+            log_message("Error: NAMESPACE must be provided either as an option or via environment variable.")
+            usage()
+            sys.exit(2)
+
     log_message("Configuration:")
     for key, value in settings.items():
         if key != 'cf_api_token':
             log_message(f"{key}: {value}")
     log_message(f"cf_api_token: {'Set' if settings['cf_api_token'] else 'Not set'}")
 
+    # Enter main loop
     while True:
         main_loop()
         time.sleep(int(settings['reconciliation_interval']))
@@ -207,7 +220,7 @@ def get_managed_dns_records():
     return filtered_records
 
 
-def find_pods_with_annotation(namespace='default', annotation_key='external-dns-kafka.alpha.tak.io/enabled',
+def find_pods_with_annotation(annotation_key='external-dns-kafka.alpha.tak.io/enabled',
                               annotation_value='true'):
     if settings['kubeconfig']:
         config.load_kube_config(settings['kubeconfig'])
@@ -220,7 +233,7 @@ def find_pods_with_annotation(namespace='default', annotation_key='external-dns-
     pods_with_annotation = {}
 
     try:
-        pod_list = v1.list_namespaced_pod(namespace)
+        pod_list = v1.list_namespaced_pod(settings['namespace'])
         for pod in pod_list.items:
             annotations = pod.metadata.annotations
             if annotations and annotation_key in annotations and annotations[annotation_key] == annotation_value:
@@ -267,11 +280,13 @@ def create_desired_record_state(pods):
 
 
 def usage():
-    print("Usage: python script.py -m MANAGED_DOMAIN [-k KUBECONFIG] [-t CF_API_TOKEN] -r RECONCILIATION_INTERVAL -z CF_ZONE_ID")
+    print("Usage: python script.py -m MANAGED_DOMAIN -n NAMESPACE [-k KUBECONFIG] [-t CF_API_TOKEN] -r RECONCILIATION_INTERVAL -z CF_ZONE_ID")
     print("Options:")
     print("  -h, --help                        Show this help message and exit")
     print("  -m MANAGED_DOMAIN, --managed-domain=MANAGED_DOMAIN")
     print("                                    Specify managed domain")
+    print("  -n NAMESPACE, --namespace=NAMESPACE")
+    print("                                    Specify managed namespace, Required, either as a parameter or via the NAMESPACE environment variable.")
     print("  -k KUBECONFIG, --kubeconfig=KUBECONFIG")
     print("                                    Specify kubeconfig file path or load via incluster config")
     print("  -z CF_ZONE_ID, --cf-zone-id=CF_ZONE_ID")
@@ -280,6 +295,11 @@ def usage():
     print("                                    Specify Cloudflare API token. Required, either as a parameter or via the CF_API_TOKEN environment variable.")
     print("  -r RECONCILIATION_INTERVAL, --reconciliation-interval=RECONCILIATION_INTERVAL")
     print("                                    Specify reconciliation interval")
+    print("")
+    print("Annotations:")
+    print("  - external-dns-kafka.alpha.tak.io/enabled     true or false")
+    print("  - external-dns-kafka.alpha.tak.io/prefix      Prefix for hostname (b -> b1.test.kafka.tak.io)")
+    print("  - external-dns-kafka.alpha.tak.io/domain      Domain (test.kafka.tak.io)")
 
 
 def log_message(message):
