@@ -241,11 +241,10 @@ def find_pods_with_annotation(annotation_key='external-dns-kafka.alpha.tak.io/en
                 node_name = pod.spec.node_name
 
                 # Get nodeIP
-                node_info = v1_node.read_node(node_name)
                 try:
                     node_info = v1_node.read_node(node_name)
                 except Exception as e:
-                    log_message("Exception when calling v1_node.read_node: ", e)
+                    log_message(f"Exception when calling v1_node.read_node: {e}")
                     return False
                 node_ip = node_info.status.addresses[0].address if node_info.status.addresses else None
 
